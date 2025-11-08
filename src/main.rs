@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::VecDeque, time::Duration};
 
 use bevy::prelude::*;
 
@@ -8,6 +8,7 @@ const GRID_PIXELS: f32 = GRID_BORDER + GRID_CONTENTS;
 const GRID_SIZE: Vec2 = Vec2::new(40.0, 22.0);
 const WINDOW_SIZE: Vec2 = Vec2::new(GRID_SIZE.x * GRID_PIXELS, GRID_SIZE.y * GRID_PIXELS);
 
+const INITIAL_SEGMENTS: usize = 4;
 const TICS_PER_SECOND: f32 = 4.0;
 
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -39,6 +40,7 @@ impl Direction {
 #[derive(Component)]
 struct Player {
 	facing: Direction,
+	segment_positions: VecDeque<Vec2>,
 }
 
 #[derive(Component)]
@@ -61,12 +63,17 @@ impl GridPos {
 }
 
 fn make_player() -> impl Bundle {
+	let first_pos = Vec2::new(GRID_SIZE.x / 2.0, GRID_SIZE.y / 2.0);
+	let mut segment_positions = VecDeque::with_capacity((GRID_SIZE.x * GRID_SIZE.y) as usize);
+	for _ in 0..INITIAL_SEGMENTS {
+		segment_positions.push_back(first_pos.clone());
+	}
 	(
 		Player {
 			facing: Direction::Right,
+			segment_positions,
 		},
-		Segment,
-		GridPos::new(GRID_SIZE.x / 2.0, GRID_SIZE.y / 2.0),
+		GridPos(first_pos),
 		Sprite::from_color(Color::srgb(0.0, 0.0, 1.0), Vec2::ONE),
 		Transform {
 			scale: Vec3 {
@@ -78,6 +85,23 @@ fn make_player() -> impl Bundle {
 		},
 	)
 }
+
+fn make_segment() -> impl Bundle {
+	(
+		Sprite::from_color(Color::srgb(0.4, 0.4, 1.0), Vec2::ONE),
+		GridPos::new(0.0, 0.0),
+		Segment,
+		Transform {
+			scale: Vec3 {
+				x: GRID_CONTENTS,
+				y: GRID_CONTENTS,
+				z: 1.0,
+			},
+			..default()
+		},
+	)
+}
+
 #[derive(Resource)]
 struct TickTimer {
 	timer: Timer,
@@ -94,6 +118,9 @@ fn setup(mut commands: Commands) {
 	commands.spawn(Camera2d);
 
 	commands.spawn(make_player());
+	for _ in 0..INITIAL_SEGMENTS {
+		commands.spawn(make_segment());
+	}
 }
 
 fn move_from_gridpos(query: Query<(&mut Transform, &GridPos)>) {
@@ -102,19 +129,34 @@ fn move_from_gridpos(query: Query<(&mut Transform, &GridPos)>) {
 	}
 }
 
-fn process_tick(
-	time: Res<Time>,
-	mut tick_timer: ResMut<TickTimer>,
-	player_query: Single<(&mut GridPos, &Player)>,
-) {
+fn process_tick(time: Res<Time>, mut tick_timer: ResMut<TickTimer>) {
 	let elapsed = time.delta();
 	tick_timer.timer.tick(elapsed);
+}
+
+fn move_player(tick_timer: Res<TickTimer>, player_query: Single<(&mut GridPos, &mut Player)>) {
 	if !tick_timer.timer.finished() {
 		return;
 	}
-
-	let (mut player_pos, player) = player_query.into_inner();
+	let (mut player_pos, mut player) = player_query.into_inner();
 	player_pos.0 += player.facing.to_vec2();
+	player.segment_positions.push_back(player_pos.0.clone());
+	player.segment_positions.pop_front();
+}
+
+fn move_segments(
+	tick_timer: Res<TickTimer>,
+	player: Single<&Player>,
+	segments: Query<&mut GridPos, With<Segment>>,
+) {
+	if !tick_timer.timer.finished() {
+		return;
+	}
+	for (index, mut segment_pos) in segments.into_iter().enumerate() {
+		let pos = player.segment_positions.get(index).unwrap();
+		segment_pos.0.x = pos.x;
+		segment_pos.0.y = pos.y;
+	}
 }
 
 fn handle_inputs(keyboard_input: Res<ButtonInput<KeyCode>>, mut player: Single<&mut Player>) {
@@ -152,7 +194,11 @@ fn main() {
 			FixedUpdate,
 			(
 				move_from_gridpos,
-				process_tick.run_if(in_state(GameStates::InGame)),
+				(
+					process_tick,
+					((move_player, move_segments).after(process_tick)),
+				)
+					.run_if(in_state(GameStates::InGame)),
 			),
 		)
 		.add_systems(Update, handle_inputs.run_if(in_state(GameStates::InGame)))

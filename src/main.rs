@@ -44,15 +44,31 @@ struct Player {
 #[derive(Component)]
 struct Segment;
 
+#[derive(Component)]
+#[require(Transform)]
+struct GridPos(Vec2);
+
+impl GridPos {
+	fn new(x: f32, y: f32) -> Self {
+		GridPos(Vec2 { x, y })
+	}
+	fn to_translation(&self) -> Vec2 {
+		Vec2 {
+			x: (self.0.x - GRID_SIZE.x / 2.0 + 0.5) * GRID_PIXELS,
+			y: (self.0.y - GRID_SIZE.y / 2.0 + 0.5) * GRID_PIXELS,
+		}
+	}
+}
+
 fn make_player() -> impl Bundle {
 	(
 		Player {
-			facing: Direction::Left,
+			facing: Direction::Right,
 		},
 		Segment,
+		GridPos::new(GRID_SIZE.x / 2.0, GRID_SIZE.y / 2.0),
 		Sprite::from_color(Color::srgb(0.0, 0.0, 1.0), Vec2::ONE),
 		Transform {
-			translation: Vec3::new(-GRID_PIXELS / 2.0, -GRID_PIXELS / 2.0, 0.0),
 			scale: Vec3 {
 				x: GRID_CONTENTS,
 				y: GRID_CONTENTS,
@@ -80,10 +96,16 @@ fn setup(mut commands: Commands) {
 	commands.spawn(make_player());
 }
 
+fn move_from_gridpos(query: Query<(&mut Transform, &GridPos)>) {
+	for (mut transform, gridpos) in query {
+		transform.translation = gridpos.to_translation().extend(1.0);
+	}
+}
+
 fn process_tick(
 	time: Res<Time>,
 	mut tick_timer: ResMut<TickTimer>,
-	player_query: Single<(&mut Transform, &Player)>,
+	player_query: Single<(&mut GridPos, &Player)>,
 ) {
 	let elapsed = time.delta();
 	tick_timer.timer.tick(elapsed);
@@ -91,8 +113,8 @@ fn process_tick(
 		return;
 	}
 
-	let (mut player_transform, player) = player_query.into_inner();
-	player_transform.translation += (player.facing.to_vec2() * GRID_PIXELS).extend(0.0);
+	let (mut player_pos, player) = player_query.into_inner();
+	player_pos.0 += player.facing.to_vec2();
 }
 
 fn handle_inputs(keyboard_input: Res<ButtonInput<KeyCode>>, mut player: Single<&mut Player>) {
@@ -128,7 +150,10 @@ fn main() {
 		.add_systems(Startup, setup)
 		.add_systems(
 			FixedUpdate,
-			process_tick.run_if(in_state(GameStates::InGame)),
+			(
+				move_from_gridpos,
+				process_tick.run_if(in_state(GameStates::InGame)),
+			),
 		)
 		.add_systems(Update, handle_inputs.run_if(in_state(GameStates::InGame)))
 		.init_state::<GameStates>()

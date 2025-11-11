@@ -50,6 +50,7 @@ impl Direction {
 #[derive(Component)]
 struct Player {
 	facing: Direction,
+	next_movement: Direction,
 	segment_positions: VecDeque<Vec2>,
 }
 
@@ -81,6 +82,7 @@ fn make_player() -> impl Bundle {
 	(
 		Player {
 			facing: Direction::Right,
+			next_movement: Direction::Right,
 			segment_positions,
 		},
 		GridPos(first_pos),
@@ -149,6 +151,7 @@ fn move_player(tick_timer: Res<TickTimer>, player_query: Single<(&mut GridPos, &
 		return;
 	}
 	let (mut player_pos, mut player) = player_query.into_inner();
+	player.facing = player.next_movement.clone();
 	player.segment_positions.push_back(player_pos.0.clone());
 	player_pos.0 += player.facing.to_vec2();
 	player.segment_positions.pop_front();
@@ -206,7 +209,7 @@ fn handle_inputs(keyboard_input: Res<ButtonInput<KeyCode>>, mut player: Single<&
 
 	if let Some(d) = new_direction {
 		if player.facing != d.inverse() {
-			player.facing = d;
+			player.next_movement = d;
 		}
 	}
 }

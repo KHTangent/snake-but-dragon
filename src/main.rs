@@ -35,6 +35,15 @@ impl Direction {
 			Direction::Right => Vec2::new(1.0, 0.0),
 		}
 	}
+
+	fn inverse(&self) -> Self {
+		match self {
+			Direction::Up => Direction::Down,
+			Direction::Down => Direction::Up,
+			Direction::Left => Direction::Right,
+			Direction::Right => Direction::Left,
+		}
+	}
 }
 
 #[derive(Component)]
@@ -160,21 +169,28 @@ fn move_segments(
 }
 
 fn handle_inputs(keyboard_input: Res<ButtonInput<KeyCode>>, mut player: Single<&mut Player>) {
+	let mut new_direction: Option<Direction> = None;
 	if keyboard_input.just_pressed(KeyCode::KeyW) || keyboard_input.just_pressed(KeyCode::ArrowUp) {
-		player.facing = Direction::Up;
+		new_direction = Some(Direction::Up);
 	}
 	if keyboard_input.just_pressed(KeyCode::KeyA) || keyboard_input.just_pressed(KeyCode::ArrowLeft)
 	{
-		player.facing = Direction::Left;
+		new_direction = Some(Direction::Left);
 	}
 	if keyboard_input.just_pressed(KeyCode::KeyD)
 		|| keyboard_input.just_pressed(KeyCode::ArrowRight)
 	{
-		player.facing = Direction::Right;
+		new_direction = Some(Direction::Right);
 	}
 	if keyboard_input.just_pressed(KeyCode::KeyS) || keyboard_input.just_pressed(KeyCode::ArrowDown)
 	{
-		player.facing = Direction::Down;
+		new_direction = Some(Direction::Down);
+	}
+
+	if let Some(d) = new_direction {
+		if player.facing != d.inverse() {
+			player.facing = d;
+		}
 	}
 }
 

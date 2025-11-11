@@ -15,6 +15,7 @@ const TICS_PER_SECOND: f32 = 4.0;
 enum GameStates {
 	#[default]
 	InGame,
+	GameOver,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -75,7 +76,7 @@ fn make_player() -> impl Bundle {
 	let first_pos = Vec2::new(GRID_SIZE.x / 2.0, GRID_SIZE.y / 2.0);
 	let mut segment_positions = VecDeque::with_capacity((GRID_SIZE.x * GRID_SIZE.y) as usize);
 	for _ in 0..INITIAL_SEGMENTS {
-		segment_positions.push_back(first_pos.clone());
+		segment_positions.push_back(Vec2 { x: -5.0, y: -5.0 });
 	}
 	(
 		Player {
@@ -98,7 +99,7 @@ fn make_player() -> impl Bundle {
 fn make_segment() -> impl Bundle {
 	(
 		Sprite::from_color(Color::srgb(0.4, 0.4, 1.0), Vec2::ONE),
-		GridPos::new(0.0, 0.0),
+		GridPos::new(-5.0, -5.0),
 		Segment,
 		Transform {
 			scale: Vec3 {
@@ -148,8 +149,8 @@ fn move_player(tick_timer: Res<TickTimer>, player_query: Single<(&mut GridPos, &
 		return;
 	}
 	let (mut player_pos, mut player) = player_query.into_inner();
-	player_pos.0 += player.facing.to_vec2();
 	player.segment_positions.push_back(player_pos.0.clone());
+	player_pos.0 += player.facing.to_vec2();
 	player.segment_positions.pop_front();
 }
 
@@ -165,6 +166,22 @@ fn move_segments(
 		let pos = player.segment_positions.get(index).unwrap();
 		segment_pos.0.x = pos.x;
 		segment_pos.0.y = pos.y;
+	}
+}
+
+fn check_self_intersect(
+	tick_timer: Res<TickTimer>,
+	player_pos: Single<&GridPos, With<Player>>,
+	segments: Query<&GridPos, With<Segment>>,
+	mut next_state: ResMut<NextState<GameStates>>,
+) {
+	if !tick_timer.timer.finished() {
+		return;
+	}
+	for segment_pos in segments {
+		if segment_pos.0 == player_pos.0 {
+			next_state.set(GameStates::GameOver);
+		}
 	}
 }
 
@@ -212,7 +229,9 @@ fn main() {
 				move_from_gridpos,
 				(
 					process_tick,
-					((move_player, move_segments).after(process_tick)),
+					((move_player, move_segments, check_self_intersect)
+						.chain()
+						.after(process_tick)),
 				)
 					.run_if(in_state(GameStates::InGame)),
 			),

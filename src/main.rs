@@ -1,3 +1,4 @@
+use rand::{rng, Rng};
 use std::{collections::VecDeque, time::Duration};
 
 use bevy::prelude::*;
@@ -17,6 +18,12 @@ enum GameStates {
 	InGame,
 	GameOver,
 }
+
+#[derive(Event)]
+struct FoodEated;
+
+#[derive(Component)]
+struct Food;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 enum Direction {
@@ -114,6 +121,35 @@ fn make_segment() -> impl Bundle {
 	)
 }
 
+fn get_valid_food_placement(player_pos: &Vec2, player: &Player) -> Vec2 {
+	let potential_x = rng().random_range(0..GRID_SIZE.x as i32);
+	let potential_y = rng().random_range(0..GRID_SIZE.y as i32);
+	let potential = Vec2::new(potential_x as f32, potential_y as f32);
+
+	if &potential == player_pos || player.segment_positions.iter().any(|&pos| pos == potential) {
+		return get_valid_food_placement(player_pos, player);
+	}
+
+	return potential;
+}
+
+fn make_food(player_pos: &Vec2, player: &Player) -> impl Bundle {
+	let position = get_valid_food_placement(player_pos, player);
+	(
+		Food,
+		GridPos::new(position.x, position.y),
+		Sprite::from_color(Color::srgb(0.4, 1.0, 0.4), Vec2::ONE),
+		Transform {
+			scale: Vec3 {
+				x: GRID_CONTENTS,
+				y: GRID_CONTENTS,
+				z: 1.0,
+			},
+			..default()
+		},
+	)
+}
+
 #[derive(Resource)]
 struct TickTimer {
 	timer: Timer,
@@ -188,6 +224,20 @@ fn check_self_intersect(
 	}
 }
 
+fn spawn_food_if_needed(
+	player_query: Single<(&GridPos, &Player)>,
+	existing_foods: Query<&Food>,
+	mut commands: Commands,
+) {
+	if existing_foods.iter().len() != 0 {
+		return;
+	}
+
+	let (player_pos, player) = player_query.into_inner();
+	let new_food = make_food(&player_pos.0, &player);
+	commands.spawn(new_food);
+}
+
 fn handle_inputs(keyboard_input: Res<ButtonInput<KeyCode>>, mut player: Single<&mut Player>) {
 	let mut new_direction: Option<Direction> = None;
 	if keyboard_input.just_pressed(KeyCode::KeyW) || keyboard_input.just_pressed(KeyCode::ArrowUp) {
@@ -225,6 +275,7 @@ fn main() {
 			}),
 			..default()
 		}))
+		.add_event::<FoodEated>()
 		.add_systems(Startup, setup)
 		.add_systems(
 			FixedUpdate,
@@ -232,7 +283,12 @@ fn main() {
 				move_from_gridpos,
 				(
 					process_tick,
-					((move_player, move_segments, check_self_intersect)
+					((
+						move_player,
+						move_segments,
+						check_self_intersect,
+						spawn_food_if_needed,
+					)
 						.chain()
 						.after(process_tick)),
 				)
